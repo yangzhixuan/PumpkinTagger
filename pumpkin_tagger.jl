@@ -18,7 +18,12 @@ function init_tagger(tagger :: Tagger, file :: String)
     @printf "reading the training set...\n"
     feature_count = 0
     label_count = 0
-    cached = collect(WordsStream(file))
+    #cached = collect(WordsStream(file))
+    cached = WordInstance[]
+    for w in WordsStream(file)
+        push!(cached, w)
+    end
+
     cached :: Array{WordInstance}
     for w in cached
         if !haskey(tagger.label_id, w.label)
@@ -48,7 +53,7 @@ function init_tagger(tagger :: Tagger, file :: String)
     cached
 end
 
-function train_tagger(tagger :: Tagger, file :: String; max_iter = 10)
+function train_tagger(tagger :: Tagger, file :: String; max_iter = 10, test_file = "")
     # we store the training set in the memory for efficiency
     cached = init_tagger(tagger, file)
     cached :: Array{ WordInstance }
@@ -57,17 +62,26 @@ function train_tagger(tagger :: Tagger, file :: String; max_iter = 10)
     last_failed = typemax(Int)
 
     weights = zeros(size(tagger.weights))
+
+    α_init = 1
+    α_end = 0.1
+    α = α_init
+
     for t in 1:max_iter
-        @printf "start iteration %d ... \n" t
+        @printf "start iteration %d (α = %f) ... \n" t α
         failed = 0
         success = 0
         last_tag = [ "__START__", "__START__" ]
         tic()
         for i in 1:length(cached)
+            if i % 5000 == 0
+                α = α_init - (α_init - α_end) * ((t-1) / max_iter + i / length(cached) / max_iter)
+            end
+
             w = cached[i]
             fill!(scores, 0.0)
             if w.sentence_start != true && (i > 1 && cached[i-1].sentence_start != true)
-                # first order linear chain structure
+                #  order linear chain structure
                 push!(w.features, (last_tag[2 - ((i - 2) & 1)] * last_tag[2 - ((i-1) & 1)], 1.0))
             end
 
@@ -87,8 +101,8 @@ function train_tagger(tagger :: Tagger, file :: String; max_iter = 10)
                 failed += 1
                 for (f,s) in w.features
                     fid = tagger.feature_id[f]
-                    tagger.weights[y, fid] += s
-                    tagger.weights[z, fid] -= s
+                    tagger.weights[y, fid] += α * s
+                    tagger.weights[z, fid] -= α * s
                 end
             else
                 success += 1
@@ -96,8 +110,11 @@ function train_tagger(tagger :: Tagger, file :: String; max_iter = 10)
         end
         running_time = toq()
         @printf "iteration %d: %d successfully predicated, %d misprediction (accuracy: %f, %f seconds elapsed)\n" t success failed (success / (success + failed)) running_time
+        if test_file != ""
+            decode(tagger, test_file)
+        end
         weights += tagger.weights
-        if failed == 0 || (failed > last_failed)
+        if failed == 0 # || (failed > last_failed)
             break
         end
         last_failed = failed
@@ -125,7 +142,7 @@ function collect_labels( l :: LabelSequence )
     a
 end
 
-function decode(tagger :: Tagger, file :: String; report_accuracy = false)
+function decode(tagger :: Tagger, file :: String; report_accuracy = true)
     @printf "reading %s ...\n" file
     cached = collect(WordsStream(file))
     cached :: Array{ WordInstance }
@@ -144,7 +161,7 @@ function decode(tagger :: Tagger, file :: String; report_accuracy = false)
     @printf "start decoding...\n"
     tic()
     for i in 1:length(cached)
-        if i % 1000 == 0
+        if i % 10000 == 0
             @printf "%d words decoded, progress %f\n" i (i / length(cached))
         end
 

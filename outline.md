@@ -24,3 +24,9 @@ outline
                     score[t] += w[ f, t ];
             for each tag t:
                 score[t] += max w[ t', t ] + f[w-1, t'] for all tag t'
+
+feature extraction
+----------------------
+lexical features:
+    1. words nearby : w[0]  w[1]  w[2]   w[-1]  w[-2]   w[-1]|w[0]   w[0]|w[1]
+    2. suffixes of nearby word: w[0][-1]  w[0][-2:-1] ... 
