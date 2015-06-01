@@ -41,39 +41,26 @@ function extract_features(file :: String; output :: String = "", brown_features 
             push!(features, "__TAG_UNKOWN__")
         end
 
-        ##################### words nearby #################### 
-        for j in 0:-1:-2
-            if i + j < 1 || i + j > length(lines) || length(lines[i+j]) == 0
-                break
-            end
-            f = @sprintf "w[%d]=%s" j lines[i+j][1]
-            push!(features, f)
+        wl = i
+        wr = i
+        while wl > i - 2 && wl > 1 && length(lines[wl - 1]) > 0
+            wl -= 1
+        end
+        while wr < i + 2 && wr < length(lines) && length(lines[wr + 1]) > 0
+            wr += 1
         end
 
-        for j in 1:1:2
-            if i + j < 1 || i + j > length(lines) || length(lines[i+j]) == 0
-                break
-            end
-            f = @sprintf "w[%d]=%s" j lines[i+j][1]
+        ##################### words nearby #################### 
+        for j in wl:wr
+            f = @sprintf "w[%d]=%s" (j-i) lines[j][1]
             push!(features, f)
         end
 
         ################# words nearby(bigram) #################### 
-        if i > 1 && length(lines[i-1]) > 0
-            f = @sprintf "w[%d]|w[%d]=%s|%s" (-1) 0 lines[i-1][1] lines[i][1]
+        for j in wl:(wr-1)
+            f = @sprintf "w[%d]|w[%d]=%s|%s" (j-i) (j+1-i) lines[j][1] lines[j+1][1]
             push!(features, f)
         end
-
-        if i < length(lines) && length(lines[i+1]) > 0
-            f = @sprintf "w[%d]|w[%d]=%s|%s" 0 1 lines[i][1] lines[i+1][1]
-            push!(features, f)
-        end
-
-        # if i > 1 && length(lines[i-1]) > 0 && i < length(lines) && length(lines[i+1]) > 0
-        #     f = @sprintf "w[%d]|w[%d]|w[%d]=%s|%s|%s" (-1) 0 1 lines[i-1][1] lines[i][1] lines[i+1][1]
-        #     push!(features, f)
-        # end
-
 
         ################## character features ####################
         for j in 0:1:0
@@ -81,12 +68,12 @@ function extract_features(file :: String; output :: String = "", brown_features 
                 continue
             end
             cs = collect(lines[i+j][1])
-            for k in max(2, (length(cs) - 2)):length(cs)
+            for k in max(2, (length(cs) - 3)):length(cs)
                 f = @sprintf "w[%d][-%d..-1]=%s" j (length(cs) - k + 1) join(cs[k:end], "")
                 push!(features, f)
             end
 
-            for k in 1: min((length(cs)-1), 2)
+            for k in 1: min((length(cs)-1), 3)
                 f = @sprintf "w[%d][1..%d]=%s" j k join(cs[1:k], "")
                 push!(features, f)
             end

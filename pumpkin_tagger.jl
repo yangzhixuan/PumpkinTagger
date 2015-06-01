@@ -53,6 +53,16 @@ function init_tagger(tagger :: Tagger, file :: String)
     cached
 end
 
+function randbern!(p :: Float64, a)
+    for t in 1:length(a)
+        if rand() < p
+            a[t] = 1
+        else
+            a[t] = 0
+        end
+    end
+end
+
 function train_tagger(tagger :: Tagger, file :: String; max_iter = 10, test_file = "")
     # we store the training set in the memory for efficiency
     cached = init_tagger(tagger, file)
@@ -61,48 +71,68 @@ function train_tagger(tagger :: Tagger, file :: String; max_iter = 10, test_file
     scores = zeros(tagger.label_count)
     last_failed = typemax(Int)
 
-    weights = zeros(size(tagger.weights))
+    weights = rand(size(tagger.weights))
+    avg_count = 0
 
-    α_init = 1
+    α_init = 0.7
     α_end = 0.1
     α = α_init
 
     for t in 1:max_iter
         @printf "start iteration %d (α = %f) ... \n" t α
+        inx = shuffle(collect(1:length(cached)))
         failed = 0
         success = 0
-        last_tag = [ "__START__", "__START__" ]
         tic()
-        for i in 1:length(cached)
-            if i % 5000 == 0
-                α = α_init - (α_init - α_end) * ((t-1) / max_iter + i / length(cached) / max_iter)
+        for c in 1:length(cached)
+            if c % 5000 == 0
+                α = α_init - (α_init - α_end) * ((t-1) + c / length(cached)) / max_iter
             end
 
+            if c % 100000 == 0
+                weights += tagger.weights
+                avg_count += 1
+            end
+
+            i = inx[c]
             w = cached[i]
             fill!(scores, 0.0)
-            if w.sentence_start != true && (i > 1 && cached[i-1].sentence_start != true)
-                #  order linear chain structure
-                push!(w.features, (last_tag[2 - ((i - 2) & 1)] * last_tag[2 - ((i-1) & 1)], 1.0))
+
+            if t == 1 && w.sentence_start != true && (i > 1 && cached[i-1].sentence_start != true)
+                # second order linear chain structure
+                push!(w.features, (cached[i-2].label * cached[i-1].label, 1.0))
             end
 
+            dropout = zeros(length(w.features))
+            randbern!(0.975, dropout)
+
+            finx = 0
             for (f, s) in w.features
+                finx += 1
+                if dropout[finx] == 0
+                    continue
+                end
                 fid = tagger.feature_id[f]
                 for l in 1:tagger.label_count
                     scores[l] += s * tagger.weights[l, fid]
                 end
             end
 
-            last_tag[2 - (i & 1)] = w.label
             (max_score, z) = findmax(scores)
             y = tagger.label_id[w.label]
 
             if y != z
                 # update the weights if the predication is not correct
                 failed += 1
+                finx = 0
                 for (f,s) in w.features
+                    finx += 1
+                    if dropout[finx] == 0
+                        continue
+                    end
                     fid = tagger.feature_id[f]
-                    tagger.weights[y, fid] += α * s
-                    tagger.weights[z, fid] -= α * s
+                    tagger.weights[y, fid] += α * s * dropout[finx]
+                    tagger.weights[z, fid] -= α * s * dropout[finx]
                 end
             else
                 success += 1
@@ -114,12 +144,13 @@ function train_tagger(tagger :: Tagger, file :: String; max_iter = 10, test_file
             decode(tagger, test_file)
         end
         weights += tagger.weights
+        avg_count += 1
         if failed == 0 # || (failed > last_failed)
             break
         end
         last_failed = failed
     end
-    tagger.weights = weights
+    tagger.weights = weights / avg_count
     tagger
 end
 
